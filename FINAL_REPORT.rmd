@@ -1,0 +1,895 @@
+---
+title: "Trends Seen on The New York Times"
+author: "Andrew Feng, Mengjia Jiang, Shu-En (Annie) Shen, Judson Webb"
+output: pdf_document
+fontsize: 10pt
+geometry: margin=1in
+indent: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(RSQLite)
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+library(hexbin)
+library(stringr)
+library(XML)
+library(grid)
+library(gridBase)
+library(gridExtra)
+library(shiny)
+
+theme1 <-theme_bw()+
+  theme(axis.text.x =element_text(size = 8, colour = "#6b3447",angle = 45, hjust=1),
+        axis.text.y =element_text(size = 8, colour = "#6b3447",angle = 0, hjust=1),
+        axis.title =element_text(size = 10, colour = "#2f2f63"),
+        legend.title =element_text(size = 8, colour = "#2f2f63"),
+        legend.text =element_text(size = 8, colour = "#6b3447"),
+        title =element_text(size = 12, colour = "#2f2f63"),
+        axis.ticks =element_line(colour = "#6b3447"),
+        plot.caption =element_text(size = 8, colour = "#2f2f63"),
+        plot.subtitle =element_text(size = 10, colour = "#2f2f63"))
+
+theme2 <-theme_bw()+
+  theme(axis.text.x =element_text(size = 8, colour = "#6b3447",angle = 90, hjust=1),
+        axis.text.y =element_text(size = 8, colour = "#6b3447",angle = 0, hjust=1),
+        axis.title =element_text(size = 10, colour = "#2f2f63"),
+        legend.title =element_text(size = 8, colour = "#2f2f63"),
+        legend.text =element_text(size = 8, colour = "#6b3447"),
+        title =element_text(size = 12, colour = "#2f2f63"),
+        axis.ticks =element_line(colour = "#6b3447"),
+        plot.caption =element_text(size = 8, colour = "#2f2f63"),
+        plot.subtitle =element_text(size = 10, colour = "#2f2f63"))
+theme3 <-theme_bw()+
+  theme(axis.text.x =element_text(size = 8, colour = "#6b3447",angle = 0, hjust=1),
+        axis.text.y =element_text(size = 8, colour = "#6b3447",angle = 0, hjust=1),
+        axis.title =element_text(size = 10, colour = "#2f2f63"),
+        legend.title =element_text(size = 8, colour = "#2f2f63"),
+        legend.text =element_text(size = 8, colour = "#6b3447"),
+        title =element_text(size = 12, colour = "#2f2f63"),
+        axis.ticks =element_line(colour = "#6b3447"),
+        plot.caption =element_text(size = 8, colour = "#2f2f63"),
+        plot.subtitle =element_text(size = 10, colour = "#2f2f63"))
+
+dcon <- dbConnect(SQLite(), dbname = "NYT_Data.sqlite")
+
+query <- "
+SELECT articleWordCount, articleID, byline, documentType, headline, keywords, newDesk,pubDate,sectionName,snippet, typeOfMaterial
+FROM totalArt;"
+res <- dbSendQuery(dcon, query)
+art_frame_storage <- dbFetch(res, -1)
+dbClearResult(res)
+
+query <- "
+SELECT commentBody, commentType, editorsSelection, recommendations, replyCount, sharing, typeOfMaterial,articleID,newDesk,articleWordCount,inReplyTo,sectionName,X, month, year
+FROM totalData;"
+res <- dbSendQuery(dcon, query)
+com_frame_storage <- dbFetch(res, -1)
+dbClearResult(res)
+
+query <- "
+SELECT commentBody, commentType, editorsSelection, recommendations, replyCount, sharing, typeOfMaterial,articleID,newDesk,articleWordCount,inReplyTo,sectionName,X,month, year, exclamationCount,exclamationBool,questionCount, questionBool
+FROM refinedWColData;"
+res <- dbSendQuery(dcon, query)
+com_frame_storage1 <- dbFetch(res, -1)
+dbClearResult(res)
+
+res <- dbSendQuery(dcon, "
+                   SELECT articleID, articleWordCount, count(*) as qty
+                   FROM totalData
+                   GROUP BY articleID
+                   ")
+table <- dbFetch(res, -1)
+dbClearResult(res)
+
+dbDisconnect(dcon)
+
+# web scraping
+
+## Jan 01, 2015 - Apr 30, 2015
+url01 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1420092000&period2=1430370000&interval=1d&filter=history&frequency=1d"
+download.file(url01, destfile = "djia")
+table01 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## May 01, 2015 - Aug 31, 2015
+url02 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1430456400&period2=1440997200&interval=1d&filter=history&frequency=1d"
+download.file(url02, destfile = "djia")
+table02 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Sep 01, 2015 - Dec 31, 2015
+url03 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1441083600&period2=1451541600&interval=1d&filter=history&frequency=1d"
+download.file(url03, destfile = "djia")
+table03 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+t0102 <- merge(table01, table02, all.x = T, all.y = T)
+t010203 <- merge(t0102, table03, all.x = T, all.y = T)
+
+## Jan 01, 2016 - Apr 30, 2016
+url1 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1451628000&period2=1461992400&interval=1d&filter=history&frequency=1d"
+download.file(url1, destfile = "djia")
+table1 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## May 01, 2016 - Aug 31, 2016
+url2 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1462078800&period2=1472619600&interval=1d&filter=history&frequency=1d"
+download.file(url2, destfile = "djia")
+table2 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Sep 01, 2016 - Dec 31, 2016
+url3 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1472706000&period2=1483164000&interval=1d&filter=history&frequency=1d"
+download.file(url3, destfile = "djia")
+table3 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Jan 01, 2017 - Apr 30, 2017
+url4 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1483250400&period2=1493528400&interval=1d&filter=history&frequency=1d"
+download.file(url4, destfile = "djia")
+table4 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## May 01, 2017 - Aug 31, 2017
+url5 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1493614800&period2=1504155600&interval=1d&filter=history&frequency=1d"
+download.file(url5, destfile = "djia")
+table5 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Sep 01, 2018 - Dec 31, 2018
+url6 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1504242000&period2=1514700000&interval=1d&filter=history&frequency=1d"
+download.file(url6, destfile = "djia")
+table6 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Jan 01, 2018 - Apr 30, 2018
+url7 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1514786400&period2=1525064400&interval=1d&filter=history&frequency=1d"
+download.file(url7, destfile = "djia")
+table7 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## May 01, 2018 - Aug 31, 2018
+url8 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1525150800&period2=1535691600&interval=1d&filter=history&frequency=1d"
+download.file(url8, destfile = "djia")
+table8 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Sep 01, 2018 - Dec 31, 2018
+url9 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1535778000&period2=1546236000&interval=1d&filter=history&frequency=1d"
+download.file(url9, destfile = "djia")
+table9 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+## Jan 01, 2019 - Mar 31, 2019
+url10 <- "https://finance.yahoo.com/quote/%5EDJI/history?period1=1546322400&period2=1554008400&interval=1d&filter=history&frequency=1d"
+download.file(url10, destfile = "djia")
+table10 <- readHTMLTable(htmlParse("djia"), data.frame = T)
+free(htmlParse("djia"))
+
+t12 <- merge(table1, table2, all.x = T, all.y= T)
+t34 <- merge(table3, table4, all.x = T, all.y= T)
+t56 <- merge(table5, table6, all.x = T, all.y= T)
+t78 <- merge(table7, table8, all.x = T, all.y= T)
+t910 <- merge(table9, table10, all.x = T, all.y= T)
+t14 <- merge(t12, t34, all.x = T, all.y= T)
+t58 <- merge(t56, t78, all.x = T, all.y= T)
+t18 <- merge(t14, t58, all.x = T, all.y= T)
+t110 <- merge(t18, t910, all.x = T, all.y= T)
+djia <- merge(t010203, t110, all.x = T, all.y = T)
+
+dcon <- dbConnect(SQLite(), dbname = "NYT_Data.sqlite")
+dbWriteTable(conn = dcon, name = "djia", djia,
+             append = TRUE, row.names = FALSE)
+
+# to show that we can pull the data we created from our sql database
+query <- "
+SELECT *
+FROM djia;"
+res <- dbSendQuery(dcon, query)
+djia1 <- dbFetch(res, -1)
+dbClearResult(res)
+
+# delete old one
+query <- "
+DROP TABLE djia;"
+dbSendQuery(dcon,query)
+
+# Create new djia
+djia2 <- djia1
+
+for (i in 1:1067) {
+  rep = str_sub(djia[i,1], 1, 3)   
+  if (rep == "Jan") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "01,")
+  } else if (rep == "Feb") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "02,")
+  } else if (rep == "Mar") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "03,")
+  } else if (rep == "Apr") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "04,")
+  } else if (rep == "May") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "05,")
+  } else if (rep == "Jun") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "06,")
+  } else if (rep == "Jul") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "07,")
+  } else if (rep == "Aug") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "08,")
+  } else if (rep == "Sep") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "09,")
+  } else if (rep == "Oct") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "10,")
+  } else if (rep == "Nov") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "11,")
+  } else if (rep == "Dec") {
+    djia2[i,1] = str_replace(djia2[i,1], rep, "12,")
+  }
+}
+
+for(i in 1:1067) {
+  djia2[i,1] = str_replace_all(djia2[i,1], ", ", "/")
+}
+
+djia2 <- djia2[order(as.Date(djia2$NULL.Date, format="%m/%d/%Y")),]
+
+dcon <- dbConnect(SQLite(), dbname = "NYT_Data.sqlite")
+
+dbDisconnect(dcon)
+
+djia2 <- mutate(djia2, new_date = as.Date(djia2$NULL.Date, format = "%m/%d/%Y"))
+```
+
+
+# Introduction
+&nbsp;
+
+For our project, we were interested data from The New York Times because articles written on various topics reflect the very temperaments and interests of society. When we started the project, we did not know what exact thing we were looking for, but our attention slowly turned towards an emphasis on politics as many trends we saw from our data sets directly correlated with the contemporary political climate. This report discusses a number of trends we have observed, and it includes possible explanations of these results.
+
+
+# Primary Dataset
+&nbsp;
+
+Our primary data set was provided by The New York Times containing a list of all comments posted in reply to NYT articles from January to April in both 2017 and 2018. We selected a group of columns that would be relevant to our interests and compiled them into a table in our database. Below is a list of those column names and their explanations.
+
+```{r}
+# original primary data set
+colnames(com_frame_storage[-c(14,15)])
+```
+
+
+* commentType - whether commented to the article or as a reply to another comment.
+
+* editorsSelection - boolean value of whether the commented article is recommended as editor's selection
+
+* recommendations - the number of recommendations the comment received
+
+* replyCount - the number of replies the comment received.
+
+* sharing - the number of times the comment was shared
+
+* typeOfMaterial - the type of material of the commented article
+
+* articleID - the ID of the commented article.
+
+* articleWordCount - the word count of the commented article
+
+* inReplyTo - if this comment is a reply to another comment, the value is the ID of that other comment. If it's a comment to an article, it's given the default value of 0
+
+* sectionName - the section name of the commented article.
+
+* X - the index of the comment.
+
+&nbsp;
+```{r}
+select(com_frame_storage, recommendations, replyCount)%>%
+filter(replyCount >= 0)%>%
+ggplot() + aes(x = recommendations, y = replyCount) +
+        geom_hex()+
+  theme3+
+  labs(title = "Frequency of Comment Recommendations",
+       x = "Recommendations Per Comment",
+       y = "Reply Count Per Comment")
+```
+
+
+
+```{r}
+select(com_frame_storage, sectionName) %>%
+ggplot(aes(x = sectionName)) +
+        geom_bar(aes(y=..count..), color = "blue", fill = "blue")+
+  theme2+
+  labs(title = "Comments by Section Name",
+       x = "Section Name",
+       y = "Count")
+```
+  
+
+
+In "Frequency of Comment Recommendations", we make the observation that recommendations per comments does not have a positive correlation with the reply count per comment. Also, we notice that there tends be more recommendations with respect to replies, which could simply be due to laziness.  
+
+&nbsp;  
+
+In "Comments by Section Name", if we ignore entire Unknown category, we see that the section that holds the largest number of comments is politics. This piece of information sparked our interest trends that could directly relate to the political atmosphere at the time. 
+
+
+# Secondary Data Set 
+&nbsp;
+
+The second data set we incorporated contains a list of all the articles posted from January to April in both 2017 and 2018. Whereas the primary data set contained information on all the comments, this data set contained information on all the articles written during the same time frame. We were able to link the article ID's for each comment in the primary data set to each respective article given in our second data set and create an updated data set in our database containing month, year, and boolean values that regarded whether each comment contained question marks or exclaimation marks. Below are the column names and explanations of the secondary dataset and the updated one in said order. 
+
+
+```{r}
+# secondary data set
+colnames(art_frame_storage)
+```
+
+* articleWordcount - the word count of the article.
+
+* articleID - the ID of the article.
+
+* byline - the author of the article.
+
+* documentType - the type of the article.
+
+* headline - the headline or title of the article.
+
+* keywords - precompiled keywords of the article.
+
+* newDesk - the article's classification of news desk e.g. national, foreign, sports.
+
+* pubDate - the publication date of the article.
+
+* sectionName - the article's subject e.g. politics, pro basketball.
+
+* snippet - a short snippet of the article.
+
+* typeOfMaterial - the type of material of the article e.g. news, opinion editorials, blogs.
+
+
+```{r}
+# updated data set
+colnames(com_frame_storage1)
+```
+
+New added columns to the primary data set:  
+
+* month - the month of the comment.
+
+* year - the year of the comment.
+
+* exclamationCount - the number of exclamation marks in the comment.
+
+* exclamationBool - whether the comment contained at least one exclamation mark.
+
+* questionCount - the number of question marks in the comment.
+
+* questionBool - whether the comment contained at least on question mark. 
+
+&nbsp;
+```{r}
+ggplot(table) + 
+  aes(table$articleWordCount, table$qty) + 
+  labs(title = "Number of Comments vs Article Word Count", 
+       x = "Article Word Count",
+       y = "Number of Comments") + 
+  geom_hex()
+```
+
+
+
+```{r, echo=FALSE, cache=FALSE, warning = FALSE}
+#bargraph
+select(com_frame_storage, typeOfMaterial) %>%
+ggplot(aes(x = typeOfMaterial)) +
+        geom_bar(aes(y=..count..), color = "purple", fill = "purple")+
+  theme1+
+  labs(title = "Comments by Type of Material",
+       x = "Type of Material",
+       y = "Count")
+```
+  
+
+&nbsp;
+In "Number of Comments vs Article Word Count", we see that word count do not have a positive correlation. The long vertical tail shows us that articles with lesser word counts usually score higher comments. We speculate that articles need to be short enough for readers to reach the comment section before leaving the page.  
+
+&nbsp;
+
+In "Comments by Type of Material", we notice how the top two types of commented material are news articles and op-eds(opinion editorials). This seems to reinforce the notion that people mainly go to news sources like NYT to either find out about pressing issues or read informed commentary on such issues. At this point, we realize that news articles or op-eds on politics seem to be the commented.
+
+
+# Comments with Relation to Stocks
+&nbsp;
+
+For our third data set, we scrapped historical data for the Dow Jones Industrial Average (DJIA). Created
+by Charles Dow to serve as a proxy for the broader U.S. economy, the Dow is currently comprised of 30
+large, publicly-owned companies trading on the New York Stock Exchange (NYSE) and the NASDAQ. Stocks
+in the DJIA are price-weighted, which divides the sum of the component stock prices by a divisor called
+the Dow Divisor; the Dow Divisor smooths out effects of stock splits and dividends. Because of how it is
+calculated, the DJIA is only affected by changes in stock prices and companies with a higher share price have
+a larger effect on the movements of the Dow.  
+
+&nbsp;
+
+Here is a short snippet of what it looks like:
+
+```{r}
+colnames(djia) <- c("Date", "Open", "High", "Low", "Close", "Adj. Close", "Volume")
+head(djia)
+```
+&nbsp;
+
+We chose the Dow over other indexes because it is one of the most widely followed American stock market
+indexes and thus is more likely to be more affected by and better reflect the general trend in the stock market. The variables we looked at included: Open, High, Low, Close, Adjusted Close, and Volume. When analyzing data, we focused on looking at the adjusted close prices, which is a more complex analysis of the closing price that adjusts for any distributions and corporate actions that happened before the next day’s open. The adjusted close price provides the most accurate representation of the market when it comes to examining historical returns.
+
+&nbsp;
+
+In our analysis of the data, we looked at trends in the DJIA stock for periods of January through April
+of 2017 and 2018 and compared the trends to trends in number of comments in each of the corresponding
+months. We found that for 2017, there was relatively stable number of comments for January, February, and
+April, with a spike in number of comments in March. Regarding the stock trend in 2017, we saw that there
+was a peak in stock prices in the beginning of March, and steady decline throughout the month. In 2018,
+there was a general increasing trend in number of comments per month and a general decreasing trend in the
+Dow’s stock prices.
+
+&nbsp;
+```{r}
+#Dow 2017 scatter plot
+bd1 <- which(djia2$NULL.Date == "01/03/2017")
+bd2 <- which(djia2$NULL.Date == "04/28/2017")
+x = djia2$new_date[bd1:bd2]
+y = djia2$NULL.Adj.Close..[bd1:bd2]
+y = as.numeric(str_replace_all(y, ",", ""))
+graph1 <- ggplot(djia2[bd1:bd2,]) + 
+  aes(x, y) + 
+  labs(title = "Stock Prices 2017",
+       x = "Date",
+       y = "Adj. Closing Prices") + 
+  geom_point(show.legend = FALSE) + 
+  theme3
+#Comments 2017 bar graph
+dcon <- dbConnect(SQLite(), dbname = "NYT_Data.sqlite")
+
+q <- "SELECT month
+FROM refinedWColData
+WHERE year = '17'
+"
+r <- dbSendQuery(dcon, q)
+table <- dbFetch(r, -1)
+dbClearResult(r)
+
+graph2 <- ggplot(table) + 
+  aes(month, fill = month) + 
+  labs(title = "Number of Comments in 2017", 
+       x = "Month",
+       y = "Number of Comments") + 
+  geom_bar() + 
+  theme3
+dbDisconnect(dcon)
+#2018 stock
+bd3 <- which(djia2$NULL.Date == "01/03/2018")
+bd4 <- which(djia2$NULL.Date == "04/30/2018")
+x1 = djia2$new_date[bd3:bd4]
+y1 = djia2$NULL.Adj.Close..[bd3:bd4]
+y1 = as.numeric(str_replace_all(y1, ",", ""))
+graph3 <- ggplot(djia2[bd3:bd4,]) + 
+  aes(x1, y1) + 
+  labs(title = "Stock Prices 2018",
+       x = "Date",
+       y = "Adj. Closing Prices") + 
+  geom_point(show.legend = FALSE) + 
+  theme3
+
+#2018 comments
+dcon <- dbConnect(SQLite(), dbname = "NYT_Data.sqlite")
+q <- "SELECT month
+FROM refinedWColData
+WHERE year = '18'
+"
+r <- dbSendQuery(dcon, q)
+table <- dbFetch(r, -1)
+dbClearResult(r)
+
+graph4 <- ggplot(table) + 
+  aes(month, fill = month) + 
+  labs(title = "Number of Comments in 2018", 
+       x = "Month",
+       y = "Number of Comments") + 
+  geom_bar() + 
+  theme3
+dbDisconnect(dcon)
+#combine graph1-graph4
+pushViewport(viewport(layout = grid.layout(2, 2)))
+vplayout <- function(x, y) viewport(layout.pos.row = x, layout.pos.col = y)
+print(graph1, vp = vplayout(1, 1)) #graph1: line 26
+print(graph2, vp = vplayout(2, 1)) #graph2: line 248
+print(graph3, vp = vplayout(1, 2)) #graph3: line 341
+print(graph4, vp = vplayout(2, 2))
+```
+&nbsp;
+
+From looking at these graphs, we concluded that there seemed to be a negative correlation between the
+stock market prices and number of comments in the New York Times. Generally, rising stock prices are characterized by optimism and falling stock prices are shrouded in pessimism. As such, one explanation for
+this relationship could be that people tend to be more politically apathetic when the economy is doing well
+and pay more attention to politics when the market seems to be weakening.
+
+
+# Killer Plot
+&nbsp;
+
+For our killer plot, we hoped that through showing the relative frequency of specific words and the months
+in which they appeared in comments, we would learn about the sentiments surrounding the most recent
+Presidential Inauguration and changes in the populatrity of certain words over time, the sentiments in the
+year after the inauguration, and the general negativity/positivity in comments over time.
+
+&nbsp;
+```{r, echo=FALSE, cache=FALSE, warning = FALSE}
+#Killer plot
+
+#drawn
+grid.newpage()
+vp <- viewport(x = 0.5, y = 0.5, width = 0.9, height = 0.9)
+pushViewport(vp)
+grid.rect(gp = gpar(col = "black", lwd = 3))
+grid.points(x = .5,
+            y =.5,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "brown",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.5,.5),y=c(.5,.58),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .5,
+            y =.58,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "red",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.5,.55),y=c(.58,.5),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .55,
+            y =.5,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "orange",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.55,.51),y=c(.5,.43),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .51,
+            y =.43,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "yellow",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.51,.44),y=c(.43,.49),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .44,
+            y =.49,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "darkblue",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.44,.45),y=c(.49,.59),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .45,
+            y =.59,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "purple",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.45,.51),y=c(.59,.64),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .51,
+            y =.64,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "cyan",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.51,.58),y=c(.64,.56),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .58,
+            y =.56,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "green",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.58,.58),y=c(.56,.48),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .58,
+            y =.48,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "darkblue",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.58,.53),y=c(.48,.39),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .53,
+            y =.39,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "purple",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.53,.46),y=c(.39,.39),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .46,
+            y =.39,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "green",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.46,.4),y=c(.39,.44),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .4,
+            y =.44,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "yellow",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.4,.4),y=c(.44,.53),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .4,
+            y =.53,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "red",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.4,.435),y=c(.53,.645),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .435,
+            y =.645,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "cyan",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.435,.5),y=c(.645,.7),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .5,
+            y =.7,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "brown",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.5,.58),y=c(.7,.65),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .58,
+            y =.65,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "red",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.58,.63),y=c(.65,.54),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .63,
+            y =.54,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "orange",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.63,.62),y=c(.54,.43),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .62,
+            y =.43,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "red",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.62,.53),y=c(.43,.32),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .53,
+            y =.32,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "darkblue",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.53,.38),y=c(.32,.37),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .38,
+            y =.37,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "brown",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.38,.34),y=c(.37,.5),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .34,
+            y =.5,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "purple",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.34,.37),y=c(.5,.64),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .37,
+            y =.64,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "purple",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.37,.44),y=c(.64,.76),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .44,
+            y =.76,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "darkblue",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.44,.56),y=c(.76,.76),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .56,
+            y =.76,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "yellow",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.56,.68),y=c(.76,.66),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .68,
+            y =.66,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "cyan",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.68,.69),y=c(.66,.49),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .69,
+            y =.49,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "brown",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.69,.60),y=c(.49,.29),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .60,
+            y =.29,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "green",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.6,.49),y=c(.29,.25),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .49,
+            y =.25,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "yellow",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.49,.31),y=c(.25,.3),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .31,
+            y =.3,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "orange",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.31,.26),y=c(.3,.5),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .26,
+            y =.5,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "orange",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.26,.31),y=c(.5,.7),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .31,
+            y =.7,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "cyan",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.31,.45),y=c(.7,.85),
+           gp=gpar(col="grey",lwd=4,alpha=.6))
+grid.points(x = .45,
+            y =.85,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "green",lwd=3), draw = TRUE, vp = NULL)
+grid.text("KEY:",x=.8, y = .8,
+          gp = gpar(fontface = "bold", cex = 1))
+grid.text("1/17 = ",x=.81, y = .74,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.73,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "yellow",bg="yellow",lwd=3), draw = TRUE, vp = NULL)
+grid.text("2/17 = ",x=.81, y = .68,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.67,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "orange",bg="orange",lwd=3), draw = TRUE, vp = NULL)
+grid.text("3/17 = ",x=.81, y = .62,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.61,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "red",bg="red",lwd=3), draw = TRUE, vp = NULL)
+grid.text("4/17 = ",x=.81, y = .56,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.55,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "brown",bg="brown",lwd=3), draw = TRUE, vp = NULL)
+grid.text("1/18 = ",x=.81, y = .5,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.49,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "cyan",bg="cyan",lwd=3), draw = TRUE, vp = NULL)
+grid.text("2/18 = ",x=.81, y = .44,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.43,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "green",bg="green",lwd=3), draw = TRUE, vp = NULL)
+grid.text("3/18 = ",x=.81, y = .38,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.37,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "purple",bg="purple",lwd=3), draw = TRUE, vp = NULL)
+grid.text("4/18 = ",x=.81, y = .32,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.31,
+            pch = 19, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "darkblue",bg="darkblue",lwd=3), draw = TRUE, vp = NULL)
+grid.text("hate = ",x=.81, y = .26,
+          gp = gpar(cex = 1))
+grid.text("corrupt = ",x=.82, y = .2,
+          gp = gpar(cex = 1))
+grid.text("happy = ",x=.817, y = .14,
+          gp = gpar(cex = 1))
+grid.text("evil = ",x=.805, y = .08,
+          gp = gpar(cex = 1))
+grid.points(x = .92,
+            y =.25,
+            pch = 1, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "black",lwd=3), draw = TRUE, vp = NULL)
+grid.points(x = .92,
+            y =.19,
+            pch = 2, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "black",lwd=3), draw = TRUE, vp = NULL)
+grid.points(x = .92,
+            y =.13,
+            pch = 0, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "black",lwd=3), draw = TRUE, vp = NULL)
+grid.points(x = .92,
+            y =.07,
+            pch = 13, size = unit(1, "char"),
+            default.units = "native", name = NULL,
+            gp = gpar(col = "black",lwd=3), draw = TRUE, vp = NULL)
+grid.lines(x=c(.75,.95),y=c(.85,.85),
+           gp=gpar(col="black",lwd=1,alpha=1))
+grid.lines(x=c(.75,.75),y=c(.02,.85),
+           gp=gpar(col="black",lwd=1,alpha=1))
+grid.lines(x=c(.95,.95),y=c(.02,.85),
+           gp=gpar(col="black",lwd=1,alpha=1))
+grid.lines(x=c(.75,.95),y=c(.02,.02),
+           gp=gpar(col="black",lwd=1,alpha=1))
+grid.text("Relative Frequency of Words by Date",x=.22, y = 1.03,
+          gp = gpar(fontface = "bold", cex = 1))
+popViewport()
+```
+&nbsp;
+
+In our killer plot, the differently shaped points represent the frequency of a specific word - happy, corrupted, evil, or hate. The different colors represent a different month in a specific year; for example, 1/17 refers to the word frequency in January of 2017 and 4/18 refers to the word frequency in April of 2018. The spiral format of plot displays the relative frequency of word usage over the two years. The words that were used more frequently in a span of a month are closest to the center of the plot whereas the words that were used less frequently in a span of a month are closer to the outer rings of the spiral. We initially thought about putting the points in a sprial to allow for easy visual grouping of points and the creation of informal popularity tiers.
+
+&nbsp;
+
+From the plot, we concluded that the most commonly used words overall were hate in April of 2017
+and happy in February of 2018. The frequency of the usage of the word hate declined from 2017 to 2018
+whereas the usage of corrupt was greater in 2018 than in 2017. Both of these words have relatively negative
+connotations, are negatively correlated in our killer plot, and their frequencies could be attributed to a shift from emotionally charged time periods to one of more specific corrupt time periods. For example, in 2018, South American had a number of corruption scandals which were covered in a number of the New York Times
+articles that were in our data. The frequency of usage between the words happy and evil were relatively
+uniform across time and didn’t dominate one another. The slightly increased usage of the word evil in the
+latter months of observation (March/April) in both years could simply be attributed to an increase in the
+number of comments in general.
+
+# Shiny Plot
+&nbsp;
+
+For our shiny plot we created a grid of four plots which detailed, for individual words, the frequency of the word occurrences for the first four months of 2017 and 2018, as well as the adjusted stock closing price over those time periods. We were able to effectively use this data to estimate stock market growth and declines and view correlations with those values and the use frequency of certain words. Certain words such as "happy" and "evil" were shown to not be correlated with stock price at all, but heavily emotional words such as "hate" were shown to be significantly correlated with stock price declines, with incidence of the word increasing as growth declined. Furthermore "corrupt" was correlated with stock price declines in the same way, possibly an indicator of a growing lack of faith in government and financial institutions. Our shiny plot allowed us to choose word variables and observe correlations in real time in order to draw relevant conclusions about socioeconomic trends in the United States, particularly among New York Times readers.
+
+
+# Conclusion
+&nbsp;
+
+When analyzing words used we see a substantial increase in certain words while other word use remains constant or decline. Significant increases of the term "corrupt" in comments, for example implies that, there is a certain amount of erosion occurring in public faith in institutions. This could be the case locally, globally, or perhaps both. It is difficult to determine the exact root of this sudden growth because corruption issues have been prolific in the U.S. in several new Cabinet members, while we have simultaneously seen an emersion of a large number of corruption scandals in South America which also fit the timeline of "corrupt" use. It is likely that both of these factors are contributors, but as of right now we cannot determine the extent to which this is the case.
+
+&nbsp;
+
+Furthermore, analysis indcates that the number of comments made appears negatively correlated with economic growth, as slowing economic growth appears to coincide with greater use of the New York Times comment section.It is likely that this is a result of humans being more likely to comment when agitated or concerned, as poor economic growth may cause individuals to feel unstable in their livelihood. It is also possible that increased commenting could stem from increased free time due to inability to find employment among readers as a result of economic conditions, although in this case that is unlikely to be the primary contributor as the New York Times is a subscription newspaper and has a readership that is typically on the wealthier side of the income bell curve. However, there could be external factors that contribute to both the number of comments and declines in economic growth that have not been considered at this time.
+
+&nbsp;
+
+People have complained for years that the online commenting environment is overwhelmingly negative, and our word analysis data supports this. Words with negative connotations occurred far more frequently than words with positive connotations, and in our research we discovered that several of the words we had looked at as measures of positivity were often actually used sarcastically or ironically. While we cannot make any evidence-based conclusions about internet comments as a whole due to our limited sample, we can confirm that the New York Times comment sections are filled with far more negative comments than positive comments, consistent with the general perception of comment boards.
+
+&nbsp;
+
+Looking at article data we can see that individuals are more likely to comment on articles with a smaller word count. However, this does not hold when the article is exceptionally short (less than 300 words). Why this might be cannot be determined from the data we have, but there are several possible explanations. It may be that more important and interesting news cannot be written in few words, but also is intentionally written not to be too long so that it is more understandable to the general public. It is also plausible that due to unknown factors, people who enjoy longer articles are also people who are not inclined to post internet comments.
+
+&nbsp;
+
+We see from the comment analysis data that the use of very emotional language has actually decreased from 2017 to 2018, possibly due to adjustment following an emotional period during the Trump inauguration in which the White House changed hands from the Democratic Party to the Republican Party. While the use of "corrupt" has dramatically increased over time, more emotional terms such as "hate" have decreased in use. This could possibly be an indication that, while still at odds with aspects of the administration, the NYT readership has emotionally acclimated to a changing political climate. However, flying in the face of that larger trend, we also saw an increase of emotional language in the opening months of 2018, possibly indicating a return to the emotional period around the time of the midterms, which could indicate that the massive "hate" numbers in 2017 were not a spike but part of a cycle. When available, the data from 2019 may be able to shed more light on this.
